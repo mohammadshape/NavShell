@@ -1,4 +1,4 @@
-package io.kayt.sample
+package io.kayt.navshell
 
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
@@ -30,15 +30,6 @@ fun NavShell(
 ) {
     val modalNavigator = remember {
         ModalComposeNavigator()
-//            .apply {
-//                onNavigateCallback = {
-//                    val currentEntry = navController.currentBackStackEntry
-//                    if (currentEntry?.isComposeNavigator() == true) {
-//                        navController.navigatorProvider[ComposeNavigator::class]
-//                            .prepareForTransition(navController.currentBackStackEntry!!)
-//                    }
-//                }
-//            }
     }
     navController.navigatorProvider.addNavigator(modalNavigator)
 
@@ -56,8 +47,6 @@ fun NavShell(
             showModalHost = true
         }
         if (showModalHost) {
-            val state = navController.navigatorProvider[ModalComposeNavigator::class].s
-            println("mmd state : $state")
             ModalHost(
                 navController,
                 modifier = Modifier
@@ -66,34 +55,9 @@ fun NavShell(
             )
             // This should handle the backstack of both ModalHost and NavHost
             BackStackBackHandler(navController)
-            ErrorWhenComposablePushOnTopOfModal(navController)
-//            KeepFullScreenBehind(navController)
         }
     }
 }
-
-//@Composable
-//private fun KeepFullScreenBehind(navController: NavController) {
-//    val currentEntry by navController.currentBackStackEntryAsState()
-//    if (currentEntry?.isModalComposeNavigator() == true) {
-//        val previousIsFull = navController.previousBackStackEntry?.isComposeNavigator() == true
-//        DisposableEffect(previousIsFull) {
-//            if (previousIsFull) {
-//                navController.navigatorProvider[ComposeNavigator::class]
-//                    .prepareForTransition(navController.previousBackStackEntry!!)
-//                navController.navigatorProvider[ComposeNavigator::class]
-//                    .prepareForTransition(navController.previousBackStackEntry!!)
-//                navController.navigatorProvider[ComposeNavigator::class]
-//                    .prepareForTransition(navController.previousBackStackEntry!!)
-//                navController.navigatorProvider[ComposeNavigator::class]
-//                    .prepareForTransition(navController.previousBackStackEntry!!)
-//            }
-//            onDispose {
-//
-//            }
-//        }
-//    }
-//}
 
 @Composable
 private fun BackStackBackHandler(navController: NavController) {
@@ -138,18 +102,6 @@ private fun BackStackBackHandler(navController: NavController) {
 
         } catch (e: CancellationException) {
             inPredictiveBack = false
-        }
-    }
-}
-
-
-@Composable
-private fun ErrorWhenComposablePushOnTopOfModal(navController: NavController) {
-    val currentEntry by navController.currentBackStackEntryAsState()
-    val previousEntry = navController.previousBackStackEntry
-    if (currentEntry != null && previousEntry != null) {
-        if (previousEntry.isModalComposeNavigator() && currentEntry!!.isComposeNavigator()) {
-            error("A composable screen can not push on top of a modal, please pop all the modal first then push the composable")
         }
     }
 }
