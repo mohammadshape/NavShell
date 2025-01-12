@@ -16,8 +16,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -31,8 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.draw.alpha
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
@@ -40,61 +37,53 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.Navigator
 import androidx.navigation.compose.LocalOwnersProvider
 import androidx.navigation.get
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.roundToInt
 
-@SuppressLint("StateFlowValueCalledInComposition")
+typealias NavEnterTransition = @JvmSuppressWildcards AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition
+typealias NavExitTransition = @JvmSuppressWildcards AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition
+typealias NavSizeTransformTransition = @JvmSuppressWildcards AnimatedContentTransitionScope<NavBackStackEntry>.() -> SizeTransform?
+
+/**
+ * ModalHost displays the screens on top of the content that is surrounded by a NavShell (e.g. an Scaffold)
+ * a modal can be the start point of a nav graph, but whenever a NavController navigates to
+ * a composable destination, all the modal destinations will be popped off the backstack
+ */
+@SuppressLint("StateFlowValueCalledInComposition", "RestrictedApi")
 @Composable
 fun ModalHost(
     navController: NavController,
     modifier: Modifier = Modifier,
     contentAlignment: Alignment = Alignment.TopStart,
-    enterTransition:
-    (@JvmSuppressWildcards
-    AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition) =
-        {
-            fadeIn(animationSpec = tween(700))
-        },
-    exitTransition:
-    (@JvmSuppressWildcards
-    AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition) =
-        {
-            fadeOut(animationSpec = tween(700))
-        },
-    popEnterTransition:
-    (@JvmSuppressWildcards
-    AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition) =
-        enterTransition,
-    popExitTransition:
-    (@JvmSuppressWildcards
-    AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition) =
-        exitTransition,
-    sizeTransform:
-    (@JvmSuppressWildcards
-    AnimatedContentTransitionScope<NavBackStackEntry>.() -> SizeTransform?)? =
-        null
+    enterTransition: NavEnterTransition = { fadeIn(tween(700)) },
+    exitTransition: NavExitTransition = { fadeOut(tween(700)) },
+    popEnterTransition: NavEnterTransition = enterTransition,
+    popExitTransition: NavExitTransition = exitTransition,
+    sizeTransform: NavSizeTransformTransition? = null
 ) {
-    // Find the ComposeNavigator, returning early if it isn't found
-    // (such as is the case when using TestNavHostController)
+    // Find the ModalComposeNavigator, returning early if it isn't found
     val modalComposeNavigator =
         navController.navigatorProvider.get<Navigator<out NavDestination>>(ModalComposeNavigator.NAME)
                 as? ModalComposeNavigator ?: return
 
     val currentBackStack by modalComposeNavigator.backStack.collectAsState()
 
-    val lastEntryIsModal =
+    val currentEntryIsModal =
         navController.currentBackStackEntry?.destination?.navigatorName == ModalComposeNavigator.NAME
 
     var progress by remember { mutableFloatStateOf(0f) }
     var inPredictiveBack by remember { mutableStateOf(false) }
 
-    PredictiveBackHandler(lastEntryIsModal && currentBackStack.size > 1) { backEvent ->
+    val isOnlyOneEntry = navController.previousBackStackEntry == null
+    PredictiveBackHandler(!isOnlyOneEntry && currentEntryIsModal) { backEvent ->
         progress = 0f
         val currentBackStackEntry = currentBackStack.lastOrNull()
         modalComposeNavigator.prepareForTransition(currentBackStackEntry!!)
-        val previousEntry = currentBackStack[currentBackStack.size - 2]
-        modalComposeNavigator.prepareForTransition(previousEntry)
+        if (currentBackStack.size > 1) {
+            val previousEntry = currentBackStack[currentBackStack.size - 2]
+            modalComposeNavigator.prepareForTransition(previousEntry)
+        }
         try {
             backEvent.collect {
                 inPredictiveBack = true
@@ -119,6 +108,7 @@ fun ModalHost(
             }
         }
     }
+
 
     val backStackEntry: NavBackStackEntry? = visibleEntries.lastOrNull()
 
@@ -177,10 +167,17 @@ fun ModalHost(
 
         val transition = rememberTransition(transitionState, label = "entry")
 
+        // Animatable for the vertical position (in pixels)
+        val alphaAnimation = remember { Animatable(0f) }
+
         if (inPredictiveBack) {
             LaunchedEffect(progress) {
-                val previousEntry = currentBackStack[currentBackStack.size - 2]
-                transitionState.seekTo(progress, previousEntry)
+                if (currentBackStack.size > 1) {
+                    val previousEntry = currentBackStack[currentBackStack.size - 2]
+                    transitionState.seekTo(progress, previousEntry)
+                } else {
+                    alphaAnimation.snapTo(1 - progress)
+                }
             }
         } else {
             LaunchedEffect(backStackEntry) {
@@ -188,6 +185,7 @@ fun ModalHost(
                 // are already on the current state
                 if (transitionState.currentState != backStackEntry) {
                     transitionState.animateTo(backStackEntry)
+                    alphaAnimation.animateTo(1f)
                 } else {
                     // convert from nanoseconds to milliseconds
                     val totalDuration = transition.totalDurationNanos / 1000000
@@ -214,77 +212,85 @@ fun ModalHost(
             }
         }
 
-        // Get screen height dynamically
-        val screenHeight = LocalConfiguration.current.screenHeightDp
-
-        // Animatable for the vertical position (in pixels)
-        val translationY = remember { Animatable(screenHeight.toFloat() * 3) }
-
         // Launch the animation when the Composable enters the composition
         LaunchedEffect(Unit) {
-            translationY.animateTo(
-                targetValue = 0f, // Move to the top
-                animationSpec = tween(600) // Customize duration and easing
-            )
-
+            // if it is the only entry in backstack (e.g. the app is started with a full screen), skip
+            // the alpha animation
+            if (isOnlyOneEntry) {
+                alphaAnimation.snapTo(1f)
+            }
+            else {
+                alphaAnimation.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(600)
+                )
+            }
         }
 
-        Box(
-            modifier = Modifier.offset { IntOffset(0, translationY.value.roundToInt()) }
-        ) {
-            transition.AnimatedContent(
-                modifier,
-                transitionSpec = {
-                    // If the initialState of the AnimatedContent is not in visibleEntries, we are in
-                    // a case where visible has cleared the old state for some reason, so instead of
-                    // attempting to animate away from the initialState, we skip the animation.
-                    if (initialState in visibleEntries) {
-                        val initialZIndex =
-                            zIndices[initialState.id] ?: 0f.also { zIndices[initialState.id] = 0f }
-                        val targetZIndex =
-                            when {
-                                targetState.id == initialState.id -> initialZIndex
-                                modalComposeNavigator.isPop.value || inPredictiveBack -> initialZIndex - 1f
-                                else -> initialZIndex + 1f
-                            }.also { zIndices[targetState.id] = it }
+        LaunchedEffect(currentBackStack.size) {
+            if (currentBackStack.isEmpty()) {
+                alphaAnimation.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(600)
+                )
+                modalComposeNavigator.markAllAsComplete()
+            }
+        }
 
-                        ContentTransform(
-                            finalEnter(this),
-                            finalExit(this),
-                            targetZIndex,
-                            finalSizeTransform(this)
-                        )
-                    } else {
-                        EnterTransition.None togetherWith ExitTransition.None
-                    }
-                },
-                contentAlignment,
-                contentKey = { it.id }
-            ) {
-                // In some specific cases, such as clearing your back stack by changing your
-                // start destination, AnimatedContent can contain an entry that is no longer
-                // part of visible entries since it was cleared from the back stack and is not
-                // animating. In these cases the currentEntry will be null, and in those cases,
-                // AnimatedContent will just skip attempting to transition the old entry.
-                // See https://issuetracker.google.com/238686802
-                val currentEntry =
-                    if (inPredictiveBack) {
-                        // We have to do this because the previous entry does not show up in
-                        // visibleEntries
-                        // even if we prepare it above as part of onBackStackChangeStarted
-                        it
-                    } else {
-                        visibleEntries.lastOrNull { entry -> it == entry }
-                    }
+        transition.AnimatedContent(
+            Modifier
+                .alpha(alphaAnimation.value)
+                .then(modifier),
+            transitionSpec = {
+                // If the initialState of the AnimatedContent is not in visibleEntries, we are in
+                // a case where visible has cleared the old state for some reason, so instead of
+                // attempting to animate away from the initialState, we skip the animation.
+                if (initialState in visibleEntries) {
+                    val initialZIndex =
+                        zIndices[initialState.id] ?: 0f.also { zIndices[initialState.id] = 0f }
+                    val targetZIndex =
+                        when {
+                            targetState.id == initialState.id -> initialZIndex
+                            modalComposeNavigator.isPop.value || inPredictiveBack -> initialZIndex - 1f
+                            else -> initialZIndex + 1f
+                        }.also { zIndices[targetState.id] = it }
 
-                // while in the scope of the composable, we provide the navBackStackEntry as the
-                // ViewModelStoreOwner and LifecycleOwner
-                currentEntry?.LocalOwnersProvider(saveableStateHolder) {
-                    (currentEntry.destination as ModalComposeNavigator.Destination).content(
-                        this,
-                        currentEntry
+                    ContentTransform(
+                        finalEnter(this),
+                        finalExit(this),
+                        targetZIndex,
+                        finalSizeTransform(this)
                     )
+                } else {
+                    EnterTransition.None togetherWith ExitTransition.None
                 }
+            },
+            contentAlignment,
+            contentKey = { it.id }
+        ) {
+            // In some specific cases, such as clearing your back stack by changing your
+            // start destination, AnimatedContent can contain an entry that is no longer
+            // part of visible entries since it was cleared from the back stack and is not
+            // animating. In these cases the currentEntry will be null, and in those cases,
+            // AnimatedContent will just skip attempting to transition the old entry.
+            // See https://issuetracker.google.com/238686802
+            val currentEntry =
+                if (inPredictiveBack) {
+                    // We have to do this because the previous entry does not show up in
+                    // visibleEntries
+                    // even if we prepare it above as part of onBackStackChangeStarted
+                    it
+                } else {
+                    visibleEntries.lastOrNull { entry -> it == entry }
+                }
+
+            // while in the scope of the composable, we provide the navBackStackEntry as the
+            // ViewModelStoreOwner and LifecycleOwner
+            currentEntry?.LocalOwnersProvider(saveableStateHolder) {
+                (currentEntry.destination as ModalComposeNavigator.Destination).content(
+                    this,
+                    currentEntry
+                )
             }
         }
         LaunchedEffect(transition.currentState, transition.targetState) {

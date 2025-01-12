@@ -42,11 +42,6 @@ class ModalComposeNavigator : Navigator<ModalComposeNavigator.Destination>() {
     override fun popBackStack(popUpTo: NavBackStackEntry, savedState: Boolean) {
         state.popWithTransition(popUpTo, savedState)
         isPop.value = true
-        if (state.backStack.value.isEmpty()) {
-            state.transitionsInProgress.value.forEachIndexed { index, entry ->
-                onTransitionComplete(entry)
-            }
-        }
     }
 
     /**
@@ -71,6 +66,12 @@ class ModalComposeNavigator : Navigator<ModalComposeNavigator.Destination>() {
      */
     public fun onTransitionComplete(entry: NavBackStackEntry) {
         state.markTransitionComplete(entry)
+    }
+
+    public fun markAllAsComplete() {
+        state.transitionsInProgress.value.forEach {
+            state.markTransitionComplete(it)
+        }
     }
 
     /** NavDestination specific to [ComposeNavigator] */

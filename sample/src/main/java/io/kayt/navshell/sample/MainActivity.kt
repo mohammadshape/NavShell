@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.dialog
 import androidx.navigation.compose.rememberNavController
 import io.kayt.navshell.NavShell
 import io.kayt.navshell.modal
@@ -78,6 +79,14 @@ fun MainUi() {
                     SampleScreen(
                         containerColor = Color.Black,
                         screenTitle = "MODAL"
+                    ) {
+                        navController.navigate("ModalForth")
+                    }
+                }
+                modal("ModalForth") {
+                    SampleScreen(
+                        containerColor = Color.White,
+                        screenTitle = "SECOND"
                     ) {
                         navController.navigate("First")
                     }
