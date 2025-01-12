@@ -16,6 +16,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
@@ -55,6 +58,7 @@ typealias NavSizeTransformTransition = @JvmSuppressWildcards AnimatedContentTran
 fun ModalHost(
     navController: NavController,
     modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.background,
     contentAlignment: Alignment = Alignment.TopStart,
     enterTransition: NavEnterTransition = { fadeIn(tween(700)) },
     exitTransition: NavExitTransition = { fadeOut(tween(700)) },
@@ -240,6 +244,7 @@ fun ModalHost(
         transition.AnimatedContent(
             Modifier
                 .alpha(alphaAnimation.value)
+                .background(containerColor)
                 .then(modifier),
             transitionSpec = {
                 // If the initialState of the AnimatedContent is not in visibleEntries, we are in
